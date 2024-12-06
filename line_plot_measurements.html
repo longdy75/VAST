@@ -1,0 +1,210 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Waterway Measurements by Location</title>
+    <script src="https://d3js.org/d3.v7.min.js"></script>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            margin: 0;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+        .container {
+            max-width: 1000px;
+            margin: 0 auto;
+            background-color: white;
+            padding: 20px;
+            border-radius: 8px;
+            box-shadow: 0 2px 4px rgba(0,0,0,0.1);
+        }
+        .controls {
+            display: flex;
+            gap: 10px;
+            margin-bottom: 20px;
+        }
+        select {
+            padding: 5px;
+            font-size: 16px;
+        }
+        .tooltip {
+            position: absolute;
+            background-color: white;
+            border: 1px solid #ddd;
+            padding: 10px;
+            pointer-events: none;
+            font-size: 14px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Waterway Measurements by Location</h1>
+        <div class="controls">
+            <select id="measureSelect"></select>
+            <select id="locationSelect"></select>
+        </div>
+        <div id="chart"></div>
+    </div>
+    <script>
+        // Set the dimensions and margins of the graph
+        const margin = {top: 20, right: 30, bottom: 50, left: 60},
+              width = 960 - margin.left - margin.right,
+              height = 500 - margin.top - margin.bottom;
+
+        // Append the svg object to the chart div
+        const svg = d3.select("#chart")
+          .append("svg")
+            .attr("width", width + margin.left + margin.right)
+            .attr("height", height + margin.top + margin.bottom)
+          .append("g")
+            .attr("transform", `translate(${margin.left},${margin.top})`);
+
+        // Parse the date
+        const parseDate = d3.timeParse("%d-%b-%y");
+
+        // Create tooltip
+        const tooltip = d3.select("body").append("div")
+            .attr("class", "tooltip")
+            .style("opacity", 0);
+
+        // Load data
+        d3.csv("https://raw.githubusercontent.com/longdy75/VAST/refs/heads/main/Boonsong%20Lekagul%20waterways%20readings%20(1).csv").then(function(data) {
+            // Process the data
+            data = data.map(d => ({
+                id: d.id,
+                value: +d.value,
+                location: d.location,
+                date: parseDate(d["sample date"]),
+                measure: d.measure
+            })).filter(d => d.date !== null);
+
+            // Get unique measures and locations
+            const measures = Array.from(new Set(data.map(d => d.measure)));
+            const locations = Array.from(new Set(data.map(d => d.location)));
+
+            // Dropdown menus
+            const measureSelect = d3.select("#measureSelect")
+                .selectAll("option")
+                .data(measures)
+                .enter()
+                .append("option")
+                .text(d => d)
+                .attr("value", d => d);
+
+            const locationSelect = d3.select("#locationSelect")
+                .selectAll("option")
+                .data(locations)
+                .enter()
+                .append("option")
+                .text(d => d)
+                .attr("value", d => d);
+
+            // Set initial values
+            let selectedMeasure = measures[0];
+            let selectedLocation = locations[0];
+
+            // Create scales
+            const x = d3.scaleTime().range([0, width]);
+            const y = d3.scaleLinear().range([height, 0]);
+
+            // Create axes
+            const xAxis = svg.append("g")
+                .attr("transform", `translate(0,${height})`)
+                .attr("class", "x-axis");
+
+            const yAxis = svg.append("g")
+                .attr("class", "y-axis");
+
+            // Axis labels
+            svg.append("text")
+                .attr("transform", `translate(${width/2},${height + margin.top + 20})`)
+                .style("text-anchor", "middle")
+                .text("Date");
+
+            svg.append("text")
+                .attr("transform", "rotate(-90)")
+                .attr("y", 0 - margin.left)
+                .attr("x", 0 - (height / 2))
+                .attr("dy", "1em")
+                .style("text-anchor", "middle")
+                .text("Value");
+
+            // Line generator
+            const line = d3.line()
+                .x(d => x(d.date))
+                .y(d => y(d.value));
+
+            // Create the line path
+            const path = svg.append("path")
+                .attr("fill", "none")
+                .attr("stroke", "steelblue")
+                .attr("stroke-width", 1.5);
+
+            // Function to update the chart
+            function updateChart() {
+                const filteredData = data.filter(d => d.measure === selectedMeasure && d.location === selectedLocation);
+              
+                x.domain(d3.extent(filteredData, d => d.date));
+                y.domain([0, d3.max(filteredData, d => d.value)]);
+            
+                xAxis.transition().duration(1000).call(d3.axisBottom(x));
+                yAxis.transition().duration(1000).call(d3.axisLeft(y));
+              
+                path.datum(filteredData)
+                    .transition()
+                    .duration(1000)
+                    .attr("d", line);
+
+                const dots = svg.selectAll(".dot")
+                    .data(filteredData);
+
+                dots.enter()
+                    .append("circle")
+                    .attr("class", "dot")
+                    .merge(dots)
+                    .transition()
+                    .duration(1000)
+                    .attr("cx", d => x(d.date))
+                    .attr("cy", d => y(d.value))
+                    .attr("r", 5)
+                    .attr("fill", "steelblue");
+
+                dots.exit().remove();
+
+                // Add tooltip functionality
+                svg.selectAll(".dot")
+                    .on("mouseover", function(event, d) {
+                        tooltip.transition()
+                            .duration(200)
+                            .style("opacity", .9);
+                        tooltip.html(`Date: ${d3.timeFormat("%B %d, %Y")(d.date)}<br/>Value: ${d.value}`)
+                            .style("left", (event.pageX + 10) + "px")
+                            .style("top", (event.pageY - 28) + "px");
+                    })
+                    .on("mouseout", function(d) {
+                        tooltip.transition()
+                            .duration(500)
+                            .style("opacity", 0);
+                    });
+            }
+
+            // Event listeners
+            d3.select("#measureSelect").on("change", function() {
+                selectedMeasure = this.value;
+                updateChart();
+            });
+
+            d3.select("#locationSelect").on("change", function() {
+                selectedLocation = this.value;
+                updateChart();
+            });
+
+            updateChart();
+        });
+    </script>
+</body>
+</html>
+
